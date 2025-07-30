@@ -8,9 +8,14 @@ import initStats from './modules/stats';
 import initLight from './modules/light';
 import initSpector from './modules/spector';
 import onWindowResize from './modules/utils';
-import { createCutMesh } from './modules/cutDemo';
+import createCutMesh from './modules/cutDemo';
 
 const sceneData = {};
+
+const tessellationOptions = {
+  deflection: 1,
+  angularDeflection: 1,
+};
 
 const animate = () => {
   requestAnimationFrame(animate);
@@ -43,8 +48,8 @@ const onCubemapLoaded = async (cubemap) => {
   sceneData.taaRenderPass = postProcessing.taaRenderPass;
   sceneData.composer = postProcessing.composer;
 
-  const cutGroup = await createCutMesh();
-  sceneData.scene.add(cutGroup);
+  const gui = new GUI();
+  await createCutMesh(sceneData.scene, tessellationOptions, gui);
 
   onWindowResize(sceneData);
   animate();

@@ -15,15 +15,12 @@ const getOC = () => {
 
 const makeBox = (oc, { x, y, z }) => new oc.BRepPrimAPI_MakeBox_2(x, y, z).Shape();
 
-const makeCylinder = (oc, { r, h, angle = 2 * Math.PI }) => (
-  new oc.BRepPrimAPI_MakeCylinder_2(r, h, angle).Shape()
-);
+const makeCylinder = (oc, { r, h, angle = 2 * Math.PI }) =>
+  new oc.BRepPrimAPI_MakeCylinder_2(r, h, angle).Shape();
 
 const filletAllEdges = (oc, shape, radius, dims) => {
   const safeRadius = Math.min(radius, Math.min(dims.x, dims.y, dims.z) / 2 - 0.01);
-  if (safeRadius <= 0) {
-    return shape;
-  }
+  if (safeRadius <= 0) return shape;
 
   const mk = new oc.BRepFilletAPI_MakeFillet(
     shape,
@@ -36,9 +33,8 @@ const filletAllEdges = (oc, shape, radius, dims) => {
     oc.TopAbs_ShapeEnum.TopAbs_SHAPE,
   );
 
-  while (exp.More()) {
+  for (; exp.More(); exp.Next()) {
     mk.Add_2(safeRadius, oc.TopoDS.Edge_1(exp.Current()));
-    exp.Next();
   }
 
   mk.Build(new oc.Message_ProgressRange_1());
@@ -46,28 +42,19 @@ const filletAllEdges = (oc, shape, radius, dims) => {
 };
 
 const translateShape = (oc, shape, { dx = 0, dy = 0, dz = 0 }) => {
-  if (dx === 0 && dy === 0 && dz === 0) {
-    return shape;
-  }
+  if (!dx && !dy && !dz) return shape;
   const trsf = new oc.gp_Trsf_1();
   trsf.SetTranslation_1(new oc.gp_Vec_4(dx, dy, dz));
   return new oc.BRepBuilderAPI_Transform_2(shape, trsf, false).Shape();
 };
 
 const rotateShape = (oc, shape, { axis = 'x', angle = 0 }) => {
-  if (angle === 0) {
-    return shape;
-  }
-
-  let dir;
-  if (axis === 'y') {
-    dir = new oc.gp_Dir_4(0, 1, 0);
-  } else if (axis === 'z') {
-    dir = new oc.gp_Dir_4(0, 0, 1);
-  } else {
-    dir = new oc.gp_Dir_4(1, 0, 0);
-  }
-
+  if (angle === 0) return shape;
+  const dir = axis === 'y'
+    ? new oc.gp_Dir_4(0, 1, 0)
+    : axis === 'z'
+    ? new oc.gp_Dir_4(0, 0, 1)
+    : new oc.gp_Dir_4(1, 0, 0);
   const ax1 = new oc.gp_Ax1_2(new oc.gp_Pnt_3(0, 0, 0), dir);
   const trsf = new oc.gp_Trsf_1();
   trsf.SetRotation_1(ax1, angle);
@@ -103,68 +90,55 @@ export default async function createCutMesh(scene, tessellationOptions, gui) {
     wireframe: parameters.wireframe,
   });
 
-  const createToolShape = (toolBuilder, transforms) => {
-    let tool = toolBuilder();
-    transforms.forEach(({ type, params }) => {
-      if (type === 'rotate') {
-        tool = rotateShape(oc, tool, params);
-      } else if (type === 'translate') {
-        tool = translateShape(oc, tool, params);
-      }
-    });
-    return tool;
-  };
-
   const build = () => {
-    const baseDims = { x: parameters.baseX, y: parameters.baseY, z: parameters.baseZ };
-    const grooveDims = { x: parameters.grooveX, y: parameters.grooveY, z: parameters.grooveZ };
-    const { deflection, angularDeflection, filletR } = parameters;
-    const ROTATION_ANGLE = Math.PI / 2;
+    const baseDims = {
+      x: parameters.baseX,
+      y: parameters.baseY,
+      z: parameters.baseZ,
+    };
 
-    const baseBox = makeBox(oc, baseDims);
-    let shape = filletAllEdges(oc, baseBox, filletR, baseDims);
+    const grooveDims = {
+      x: parameters.grooveX,
+      y: parameters.grooveY,
+      z: parameters.grooveZ,
+    };
 
-    const compoundBuilder = new oc.BRep_Builder_1();
-    const tools = new oc.TopoDS_Compound_1();
-    compoundBuilder.MakeCompound(tools);
+    const tessellation = {
+      deflection: parameters.deflection,
+      angularDeflection: parameters.angularDeflection,
+    };
 
-    const groove = createToolShape(
-      () => makeBox(oc, grooveDims),
-      [{
-        type: 'translate',
-        params: {
-          dx: -grooveDims.x * 0.2,
-          dy: (baseDims.y - grooveDims.y) / 2,
-          dz: (baseDims.z - grooveDims.z) / 2,
-        },
-      }],
-    );
-    compoundBuilder.Add(tools, groove);
+    let shape = makeBox(oc, baseDims);
+    shape = filletAllEdges(oc, shape, parameters.filletR, baseDims);
 
-    parameters.cyls.forEach(({ r, h, dy, dz }) => {
-      const cyl = createToolShape(
-        () => makeCylinder(oc, { r, h }),
-        [
-          { type: 'rotate', params: { axis: 'y', angle: ROTATION_ANGLE } },
-          { type: 'translate', params: { dx: -baseDims.x / 2, dy, dz } },
-        ],
-      );
-      compoundBuilder.Add(tools, cyl);
-    });
+    const grooveRaw = makeBox(oc, grooveDims);
+    const dx = -grooveDims.x * 0.2;
+    const dy = (baseDims.y - grooveDims.y) / 2;
+    const dz = (baseDims.z - grooveDims.z) / 2;
+    const groove = translateShape(oc, grooveRaw, { dx, dy, dz });
 
-    const cutOp = new oc.BRepAlgoAPI_Cut_3(shape, tools, new oc.Message_ProgressRange_1());
+    let cutOp = new oc.BRepAlgoAPI_Cut_3(shape, groove, new oc.Message_ProgressRange_1());
     cutOp.Build(new oc.Message_ProgressRange_1());
     shape = cutOp.Shape();
 
+    parameters.cyls.forEach(({ r, h, dy: cydy, dz: cydz }) => {
+      const cylRaw = makeCylinder(oc, { r, h });
+      const cylRot = rotateShape(oc, cylRaw, { axis: 'y', angle: Math.PI / 2 });
+      const cyl = translateShape(oc, cylRot, { dx, dy: cydy, dz: cydz });
+      cutOp = new oc.BRepAlgoAPI_Cut_3(shape, cyl, new oc.Message_ProgressRange_1());
+      cutOp.Build(new oc.Message_ProgressRange_1());
+      shape = cutOp.Shape();
+    });
+
     new oc.BRepMesh_IncrementalMesh_2(
       shape,
-      deflection,
+      tessellation.deflection,
       false,
-      angularDeflection,
+      tessellation.angularDeflection,
       false,
     );
 
-    const geometries = visualize(oc, shape, { deflection, angularDeflection });
+    const geometries = visualize(oc, shape, tessellation);
     const group = new THREE.Group();
 
     geometries.forEach((geometry) => {
@@ -184,9 +158,7 @@ export default async function createCutMesh(scene, tessellationOptions, gui) {
 
     scene.remove(currentMesh);
     currentMesh.traverse((node) => {
-      if (node.isMesh) {
-        node.geometry.dispose();
-      }
+      if (node.isMesh) node.geometry.dispose();
     });
 
     currentMesh = build();
