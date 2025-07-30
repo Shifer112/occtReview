@@ -49,7 +49,22 @@ const onCubemapLoaded = async (cubemap) => {
   sceneData.composer = postProcessing.composer;
 
   const gui = new GUI();
-  await createCutMesh(sceneData.scene, tessellationOptions, gui);
+  const { stats, runTest, parts } = await createCutMesh(sceneData.scene, tessellationOptions, gui);
+
+  console.log('Parts returned:', parts);
+  console.log('Number of parts:', parts.length);
+
+  // Если parts не пуст, добавим первый объект в сцену (хотя он должен быть уже добавлен)
+  if (parts.length > 0) {
+      console.log('Adding first part to scene explicitly');
+      sceneData.scene.add(parts[0]);
+  }
+
+  // Проверим сцену еще раз
+  console.log('Objects in scene after:', sceneData.scene.children.length);
+  sceneData.scene.children.forEach((child, index) => {
+      console.log(`Child ${index}:`, child.type, child.position);
+  });
 
   onWindowResize(sceneData);
   animate();
